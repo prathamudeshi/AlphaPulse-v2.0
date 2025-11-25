@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Gemini Dark Theme Palette */
+  --background: #131314;
+  --sidebar-bg: #1e1f20;
+  --surface: #1e1f20;
+  --surface-hover: #2d2e2f;
+  --primary: #a8c7fa;
+  --primary-hover: #8ab4f8;
+  --text-primary: #e3e3e3;
+  --text-secondary: #c4c7c5;
+  --border: #444746;
+  --input-bg: #1e1f20;
+  --user-bubble: #282a2c; /* Or a specific accent if preferred, Gemini uses dark grey for user */
+  --assistant-bubble: transparent;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif; /* Ensure you have a font loaded or use system-ui */
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #444746;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5e5e5e;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(to right, #4285f4, #9b72cb, #d96570);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}

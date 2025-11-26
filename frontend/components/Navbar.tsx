@@ -7,6 +7,7 @@ import { isAuthenticated, logout } from "../lib/auth";
 const authenticatedNavLinks = [
   { href: "/chat", label: "Chat" },
   { href: "/profile", label: "Profile" },
+  { href: "/tutorial", label: "Help" },
 ];
 
 const unauthenticatedNavLinks = [
@@ -22,8 +23,7 @@ export default function Navbar() {
     setAuthenticated(isAuthenticated());
   }, [pathname]);
 
-  // Hide navbar on chat page as it has its own sidebar
-  if (pathname === "/chat") return null;
+
 
   const navLinks = authenticated
     ? authenticatedNavLinks
@@ -38,7 +38,7 @@ export default function Navbar() {
       <div className="flex items-center gap-8">
         <Link href={authenticated ? "/chat" : "/"}>
           <span className="text-xl font-medium text-text-primary">
-            LY Project
+            AI Trading Bot
           </span>
         </Link>
         <div className="flex gap-1">

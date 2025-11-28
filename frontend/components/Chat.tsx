@@ -43,7 +43,7 @@ type Conversation = { id: string; title: string; messages: Message[] };
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 
-export default function Chat() {
+export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }) {
   const [token, setToken] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -73,6 +73,7 @@ export default function Chat() {
     if (!token) return;
     axios
       .get(`${API_BASE}/conversations/`, {
+        params: { mode },
         headers: { Authorization: `Bearer ${token}` },
       })
       .then((res) => {
@@ -82,7 +83,7 @@ export default function Chat() {
         if (res.data.length && !activeId) setActiveId(res.data[0].id);
       })
       .catch(() => {});
-  }, [token]);
+  }, [token, mode]);
 
   const active = useMemo(
     () => conversations.find((c) => c.id === activeId) || null,
@@ -93,7 +94,7 @@ export default function Chat() {
     if (!token) return;
     const res = await axios.post(
       `${API_BASE}/conversations/create/`,
-      { title: "New chat" },
+      { title: "New chat", mode },
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const convo = res.data as Conversation;
@@ -102,12 +103,31 @@ export default function Chat() {
   };
 
   const sendMessage = async () => {
-    if (!token || !activeId || !input.trim()) return;
+    if (!token || !input.trim()) return;
+    
+    let currentId = activeId;
+    if (!currentId) {
+        try {
+            const res = await axios.post(
+                `${API_BASE}/conversations/create/`,
+                { title: "New chat", mode },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            const convo = res.data as Conversation;
+            setConversations([convo, ...conversations]);
+            setActiveId(convo.id);
+            currentId = convo.id;
+        } catch (e) {
+            toast.error("Failed to start conversation");
+            return;
+        }
+    }
+
     const userText = input;
     setInput("");
 
     const optimistic: Conversation[] = conversations.map((c) =>
-      c.id === activeId
+      c.id === currentId
         ? {
             ...c,
             messages: [
@@ -118,10 +138,23 @@ export default function Chat() {
           }
         : c
     );
-    setConversations(optimistic);
+    // If we just created it, we need to add it to optimistic update properly
+    if (!activeId) {
+         // It's already added in setConversations above, but we need to update it with the message
+         setConversations(prev => prev.map(c => c.id === currentId ? {
+             ...c,
+             messages: [
+                 ...c.messages,
+                 { role: "user", content: userText },
+                 { role: "assistant", content: "" }
+             ]
+         } : c));
+    } else {
+        setConversations(optimistic);
+    }
 
     try {
-      const url = `${API_BASE}/conversations/${activeId}/stream/`;
+      const url = `${API_BASE}/conversations/${currentId}/stream/`;
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -300,6 +333,12 @@ export default function Chat() {
             <Plus className="w-5 h-5 text-text-secondary" />
             <span>New chat</span>
           </button>
+
+          {mode === "simulation" && (
+            <div className="mb-4 px-4 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-yellow-500 text-xs font-medium text-center">
+              Simulation Mode
+            </div>
+          )}
 
           <div className="text-xs font-medium text-text-secondary mb-2 px-2">
             Recent

@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+import datetime
 from typing import Dict, Any, List
 
 # Hardcoded Nifty 50 symbols for "market" context
@@ -188,4 +189,148 @@ def screen_stocks(strategy: str) -> Dict[str, Any]:
         return {
             "success": False,
             "message": f"Failed to screen stocks: {str(e)}"
+        }
+
+def get_stock_history(symbol: str, period: str = "1mo") -> Dict[str, Any]:
+    """
+    Get historical stock data for analysis.
+    Period options: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+    """
+    try:
+        # Append .NS if not present (assuming NSE)
+        if not symbol.endswith(".NS") and not symbol.endswith(".BO"):
+            ticker_symbol = f"{symbol}.NS"
+        else:
+            ticker_symbol = symbol
+            
+        ticker = yf.Ticker(ticker_symbol)
+        # Fetch history
+        hist = ticker.history(period=period)
+        
+        if hist.empty:
+             return {"success": False, "message": f"No history found for {symbol}"}
+             
+        # Format for LLM analysis
+        # We'll return a simplified list of daily closes/opens/highs/lows
+        # Limit to last 30 points to avoid token limits if period is long, 
+        # or maybe resample. For now, let's just take the last 30 rows if it's a long period.
+        
+        data = []
+        for date, row in hist.tail(30).iterrows():
+            data.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "close": round(row['Close'], 2),
+                "volume": int(row['Volume'])
+            })
+            
+        return {
+            "success": True,
+            "symbol": symbol,
+            "period": period,
+            "data": data,
+            "summary": f"Last {len(data)} trading sessions data provided."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to fetch history for {symbol}: {str(e)}"
+        }
+
+def get_company_news(symbol: str) -> Dict[str, Any]:
+    """
+    Get recent news for a company.
+    """
+    try:
+        # Append .NS if not present (assuming NSE)
+        if not symbol.endswith(".NS") and not symbol.endswith(".BO"):
+            ticker_symbol = f"{symbol}.NS"
+        else:
+            ticker_symbol = symbol
+            
+        ticker = yf.Ticker(ticker_symbol)
+        news = ticker.news
+        
+        formatted_news = []
+        for item in news:
+            formatted_news.append({
+                "title": item.get('title'),
+                "publisher": item.get('publisher'),
+                "link": item.get('link'),
+                "published": datetime.datetime.fromtimestamp(item.get('providerPublishTime', 0)).strftime('%Y-%m-%d %H:%M') if item.get('providerPublishTime') else "N/A"
+            })
+            
+        return {
+            "success": True,
+            "symbol": symbol,
+            "news": formatted_news[:5] # Top 5 news items
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to fetch news for {symbol}: {str(e)}"
+        }
+
+
+def query_market_data(
+    sector: str = None,
+    min_price: float = None,
+    max_price: float = None,
+    min_pe: float = None,
+    max_pe: float = None,
+    min_market_cap: int = None,
+    sort_by: str = "market_cap"
+) -> Dict[str, Any]:
+    """
+    Query the local database for stocks matching criteria.
+    Useful for screening stocks (e.g., "Find banks with PE < 20").
+    """
+    try:
+        from .models import StockData
+        from django.db.models import Q
+        
+        query = Q()
+        
+        if sector:
+            query &= Q(sector__icontains=sector)
+        if min_price is not None:
+            query &= Q(current_price__gte=min_price)
+        if max_price is not None:
+            query &= Q(current_price__lte=max_price)
+        if min_pe is not None:
+            query &= Q(pe_ratio__gte=min_pe)
+        if max_pe is not None:
+            query &= Q(pe_ratio__lte=max_pe)
+        if min_market_cap is not None:
+            query &= Q(market_cap__gte=min_market_cap)
+            
+        # Validate sort_by
+        valid_sorts = ["market_cap", "-market_cap", "pe_ratio", "-pe_ratio", "current_price", "-current_price", "volume", "-volume"]
+        if sort_by not in valid_sorts:
+            # Default to market cap desc if invalid
+            sort_by = "-market_cap"
+        elif not sort_by.startswith("-") and sort_by != "pe_ratio": 
+            # Default to descending for most things except maybe PE
+             sort_by = f"-{sort_by}"
+             
+        results = StockData.objects.filter(query).order_by(sort_by)[:10]
+        
+        data = []
+        for stock in results:
+            data.append({
+                "symbol": stock.symbol,
+                "price": float(stock.current_price) if stock.current_price else None,
+                "pe": float(stock.pe_ratio) if stock.pe_ratio else None,
+                "market_cap": stock.market_cap,
+                "sector": stock.sector
+            })
+            
+        return {
+            "success": True,
+            "count": len(data),
+            "stocks": data
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Failed to query market data: {str(e)}"
         }

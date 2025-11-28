@@ -6,6 +6,7 @@ import { isAuthenticated, logout } from "../lib/auth";
 
 const authenticatedNavLinks = [
   { href: "/chat", label: "Chat" },
+  { href: "/simulation", label: "Simulation" },
   { href: "/profile", label: "Profile" },
   { href: "/tutorial", label: "Help" },
 ];

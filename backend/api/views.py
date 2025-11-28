@@ -21,6 +21,7 @@ from django.db import transaction
 from kiteconnect import KiteConnect
 from . import kite_tools
 from . import market_tools
+from . import sim_tools
 from .guardrails.safety import SafetyFilter
 
 # Initialize safety filter globally to avoid reloading model
@@ -171,6 +172,7 @@ def conversation_doc_to_dto(doc):
         'created_at': doc.get('created_at'),
         'updated_at': doc.get('updated_at'),
         'messages': doc.get('messages', []),
+        'mode': doc.get('mode', 'real'),
     }
 
 
@@ -179,7 +181,15 @@ def list_conversations(request):
     _, db = get_mongo()
     col = db['conversations']
     user_id = request.user.id
-    docs = list(col.find({'user_id': user_id}).sort('updated_at', -1))
+    mode = request.query_params.get('mode', 'real')
+    
+    query = {'user_id': user_id}
+    if mode == 'real':
+        query['$or'] = [{'mode': 'real'}, {'mode': {'$exists': False}}]
+    else:
+        query['mode'] = mode
+        
+    docs = list(col.find(query).sort('updated_at', -1))
     return Response([conversation_doc_to_dto(d) for d in docs])
 
 
@@ -188,10 +198,12 @@ def create_conversation(request):
     _, db = get_mongo()
     col = db['conversations']
     title = request.data.get('title') or 'New chat'
+    mode = request.data.get('mode', 'real')
     now = datetime.datetime.utcnow()
     doc = {
         'title': title,
         'user_id': request.user.id,
+        'mode': mode,
         'created_at': now,
         'updated_at': now,
         'messages': [],
@@ -315,6 +327,46 @@ def get_gemini_tools():
                         },
                         "required": ["strategy"]
                     }
+                },
+                {
+                    "name": "get_stock_history",
+                    "description": "Get historical stock data for analysis.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "symbol": {"type": "STRING", "description": "The stock symbol (e.g., RELIANCE)."},
+                            "period": {"type": "STRING", "description": "Time period (1d, 5d, 1mo, 3mo, 6mo, 1y, 5y). Default 1mo."}
+                        },
+                        "required": ["symbol"]
+                    }
+                },
+                {
+                    "name": "get_company_news",
+                    "description": "Get recent news for a company.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "symbol": {"type": "STRING", "description": "The stock symbol (e.g., RELIANCE)."}
+                        },
+                        "required": ["symbol"]
+                    }
+                },
+                {
+                    "name": "query_market_data",
+                    "description": "Query/Screen the stock market database for stocks matching specific criteria (sector, price, PE, market cap). Use this for broad questions like 'Find cheap banks' or 'Stocks with high market cap'.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "sector": {"type": "STRING", "description": "Sector to filter by (e.g., 'Bank', 'IT', 'Energy')."},
+                            "min_price": {"type": "NUMBER", "description": "Minimum price."},
+                            "max_price": {"type": "NUMBER", "description": "Maximum price."},
+                            "min_pe": {"type": "NUMBER", "description": "Minimum PE ratio."},
+                            "max_pe": {"type": "NUMBER", "description": "Maximum PE ratio."},
+                            "min_market_cap": {"type": "INTEGER", "description": "Minimum market cap."},
+                            "sort_by": {"type": "STRING", "description": "Field to sort by (market_cap, pe_ratio, current_price). Default is market_cap."}
+                        },
+                        "required": []
+                    }
                 }
             ]
         }
@@ -340,13 +392,14 @@ def stream_message(request, conversation_id: str):
 
         # Get conversation history (all previous messages)
         previous_messages = convo.get('messages', [])
+        mode = convo.get('mode', 'real')
 
         # Get user profile for bio
         profile = UserProfile.objects.filter(user=request.user).first()
         user_bio = profile.bio if profile else ""
         trade_threshold = profile.trade_threshold if profile else None
 
-        system_instruction = "You are a helpful trading assistant."
+        system_instruction = "You are an educational trading assistant. Your goal is to help the user study market trends, understand financial concepts, and learn about trading algorithms. You have access to a local database of stock market data which you can query using the 'query_market_data' tool to find stocks based on sector, price, PE ratio, and market cap. Use this tool when the user asks to find, list, or screen for stocks (e.g., 'undervalued banks', 'large cap IT'). You can also provide technical analysis and news. Always state that your analysis is for educational purposes only and does not constitute financial advice. Explain your reasoning to help the user learn."
         if user_bio:
             system_instruction += f" The user has provided the following bio: '{user_bio}'. Adapt your persona and responses accordingly."
         
@@ -371,7 +424,11 @@ def stream_message(request, conversation_id: str):
                 genai.configure(api_key=settings.GEMINI_API_KEY)
                 
                 # Initialize model with tools
-                tools = get_gemini_tools()
+                if mode == 'simulation':
+                    tools = sim_tools.get_simulated_tools()
+                else:
+                    tools = get_gemini_tools()
+                    
                 model = genai.GenerativeModel("gemini-2.5-flash", tools=tools, system_instruction=system_instruction)
                 
                 # Build history
@@ -400,99 +457,208 @@ def stream_message(request, conversation_id: str):
                     
                     result = {}
                     # Execute tool
-                    if tool_name == 'place_order':
-                        # Ensure quantity is an integer
-                        if 'quantity' in args:
-                            try:
-                                args['quantity'] = int(args['quantity'])
-                            except (ValueError, TypeError):
-                                pass  # Let downstream handle it if it's really broken
+                    if mode == 'simulation':
+                         if tool_name == 'place_order':
+                            # Ensure quantity is int
+                            if 'quantity' in args:
+                                try:
+                                    args['quantity'] = int(args['quantity'])
+                                except: pass
+                            # Uppercase enums
+                            for key in ['transaction_type', 'exchange', 'order_type']:
+                                if key in args and isinstance(args[key], str):
+                                    args[key] = args[key].upper()
+                                    
+                            result = sim_tools.place_simulated_order(request.user.id, **args)
+                            
+                         elif tool_name == 'get_holdings':
+                            result = sim_tools.get_simulated_holdings(request.user.id)
+                            if result.get('success'):
+                                try:
+                                    holdings_json = json.dumps(result.get('holdings', []), default=str)
+                                    yield f"data: [HOLDINGS] {holdings_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing sim holdings: {e}")
+                                    
+                         elif tool_name == 'get_stock_info':
+                            # Same as real
+                            result = market_tools.get_stock_info(**args)
+                            if result.get('success'):
+                                try:
+                                    payload = {"type": "single", "data": result}
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except: pass
+                                
+                         elif tool_name == 'get_market_movers':
+                            # Same as real
+                            result = market_tools.get_market_movers()
+                            if result.get('success'):
+                                try:
+                                    payload = {"type": "movers", "data": result}
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except: pass
+                                
+                         elif tool_name == 'screen_stocks':
+                            # Same as real
+                            result = market_tools.screen_stocks(**args)
+                            if result.get('success'):
+                                try:
+                                    payload = {"type": "list", "title": f"{args.get('strategy', 'Stock').capitalize()} Stocks", "data": result.get('stocks', [])}
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except: pass
+                                
+                         elif tool_name == 'get_stock_history':
+                            result = market_tools.get_stock_history(**args)
+                            if result.get('success'):
+                                try:
+                                    # Send chart data to frontend
+                                    payload = {"type": "single", "data": {"symbol": result.get('symbol'), "history_1d": result.get('data')}}
+                                    # Note: The frontend expects 'history_1d' for the chart, but our tool returns 'data'. 
+                                    # We might need to adjust frontend or backend to handle different periods.
+                                    # For now, let's just send it as is, or map it if needed.
+                                    # The frontend chart uses 'time' and 'value'. Our tool returns 'date', 'close'.
+                                    # Let's map it here to match frontend expectation if possible, or update frontend.
+                                    # Frontend expects: { time: string, value: number }
+                                    chart_data = [{"time": d['date'], "value": d['close']} for d in result.get('data', [])]
+                                    
+                                    # We construct a payload that looks like what 'get_stock_info' returns for history
+                                    # But we might want a specific event for history?
+                                    # Or just let the LLM describe it.
+                                    # Actually, let's just let the LLM describe it for now, 
+                                    # but maybe send a [CHART] event if we want to be fancy later.
+                                    pass
+                                except: pass
+                                
+                         elif tool_name == 'get_company_news':
+                            result = market_tools.get_company_news(**args)
+                            
+                         elif tool_name == 'query_market_data':
+                            result = market_tools.query_market_data(**args)
+                            if result.get('success'):
+                                try:
+                                    payload = {
+                                        "type": "list",
+                                        "title": "Market Query Results",
+                                        "data": result.get('stocks', [])
+                                    }
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing query results: {e}")
+                         else:
+                            result = {"error": f"Unknown tool: {tool_name}"}
 
-                        # Ensure enums are uppercase
-                        for key in ['transaction_type', 'exchange', 'product', 'order_type']:
-                            if key in args and isinstance(args[key], str):
-                                args[key] = args[key].upper()
+                    else:
+                        # REAL MODE
+                        if tool_name == 'place_order':
+                            # Ensure quantity is an integer
+                            if 'quantity' in args:
+                                try:
+                                    args['quantity'] = int(args['quantity'])
+                                except (ValueError, TypeError):
+                                    pass  # Let downstream handle it if it's really broken
 
-                        # Check Threshold
-                        if trade_threshold is not None:
-                            # We need to estimate order value.
-                            # If it's a LIMIT order, we might have price.
-                            # If MARKET, we need to fetch current price.
-                            qty = args.get('quantity', 0)
-                            price = args.get('price', 0) # Not in our tool def yet but might be passed?
-                            
-                            # If price is not known (Market order), fetch it
-                            if not price:
-                                symbol = args.get('tradingsymbol')
-                                if symbol:
-                                    # Quick fetch of price
-                                    # We can use market_tools.get_stock_info or kite_tools.ltp if available
-                                    # For now let's try market_tools.get_stock_info
-                                    try:
-                                        info = market_tools.get_stock_info(symbol=symbol)
-                                        if info.get('success'):
-                                            price = info.get('current_price', 0)
-                                    except:
-                                        pass
-                            
-                            estimated_value = qty * float(price) if price else 0
-                            
-                            # If we still don't have a price (e.g. failed fetch), we might warn or block.
-                            # For safety, if we can't verify value, maybe block? Or allow with warning?
-                            # Let's block if we have a valid price and it exceeds.
-                            if price and estimated_value > trade_threshold:
-                                result = {"status": "error", "message": f"Order value ({estimated_value}) exceeds your configured threshold of {trade_threshold}."}
+                            # Ensure enums are uppercase
+                            for key in ['transaction_type', 'exchange', 'product', 'order_type']:
+                                if key in args and isinstance(args[key], str):
+                                    args[key] = args[key].upper()
+
+                            # Check Threshold
+                            if trade_threshold is not None:
+                                # We need to estimate order value.
+                                # If it's a LIMIT order, we might have price.
+                                # If MARKET, we need to fetch current price.
+                                qty = args.get('quantity', 0)
+                                price = args.get('price', 0) # Not in our tool def yet but might be passed?
+                                
+                                # If price is not known (Market order), fetch it
+                                if not price:
+                                    symbol = args.get('tradingsymbol')
+                                    if symbol:
+                                        # Quick fetch of price
+                                        # We can use market_tools.get_stock_info or kite_tools.ltp if available
+                                        # For now let's try market_tools.get_stock_info
+                                        try:
+                                            info = market_tools.get_stock_info(symbol=symbol)
+                                            if info.get('success'):
+                                                price = info.get('current_price', 0)
+                                        except:
+                                            pass
+                                
+                                estimated_value = qty * float(price) if price else 0
+                                
+                                # If we still don't have a price (e.g. failed fetch), we might warn or block.
+                                # For safety, if we can't verify value, maybe block? Or allow with warning?
+                                # Let's block if we have a valid price and it exceeds.
+                                if price and estimated_value > trade_threshold:
+                                    result = {"status": "error", "message": f"Order value ({estimated_value}) exceeds your configured threshold of {trade_threshold}."}
+                                else:
+                                    result = kite_tools.place_order(request.user, **args)
                             else:
                                 result = kite_tools.place_order(request.user, **args)
+                        elif tool_name == 'get_holdings':
+                            result = kite_tools.get_holdings(request.user)
+                            if result.get('success'):
+                                try:
+                                    holdings_json = json.dumps(result.get('holdings', []), default=str)
+                                    yield f"data: [HOLDINGS] {holdings_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing holdings: {e}")
+                        elif tool_name == 'get_stock_info':
+                            result = market_tools.get_stock_info(**args)
+                            if result.get('success'):
+                                try:
+                                    payload = {
+                                        "type": "single",
+                                        "data": result
+                                    }
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing stock info: {e}")
+                        elif tool_name == 'get_market_movers':
+                            result = market_tools.get_market_movers()
+                            if result.get('success'):
+                                try:
+                                    payload = {
+                                        "type": "movers",
+                                        "data": result
+                                    }
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing movers: {e}")
+                        elif tool_name == 'screen_stocks':
+                            result = market_tools.screen_stocks(**args)
+                            if result.get('success'):
+                                try:
+                                    payload = {
+                                        "type": "list",
+                                        "title": f"{args.get('strategy', 'Stock').capitalize()} Stocks",
+                                        "data": result.get('stocks', [])
+                                    }
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing screened stocks: {e}")
+                        elif tool_name == 'query_market_data':
+                            result = market_tools.query_market_data(**args)
+                            if result.get('success'):
+                                try:
+                                    payload = {
+                                        "type": "list",
+                                        "title": "Market Query Results",
+                                        "data": result.get('stocks', [])
+                                    }
+                                    stocks_json = json.dumps(payload, default=str)
+                                    yield f"data: [STOCKS] {stocks_json}\n\n"
+                                except Exception as e:
+                                    print(f"Error serializing query results: {e}")
                         else:
-                            result = kite_tools.place_order(request.user, **args)
-                    elif tool_name == 'get_holdings':
-                        result = kite_tools.get_holdings(request.user)
-                        if result.get('success'):
-                            try:
-                                holdings_json = json.dumps(result.get('holdings', []), default=str)
-                                yield f"data: [HOLDINGS] {holdings_json}\n\n"
-                            except Exception as e:
-                                print(f"Error serializing holdings: {e}")
-                    elif tool_name == 'get_stock_info':
-                        result = market_tools.get_stock_info(**args)
-                        if result.get('success'):
-                            try:
-                                payload = {
-                                    "type": "single",
-                                    "data": result
-                                }
-                                stocks_json = json.dumps(payload, default=str)
-                                yield f"data: [STOCKS] {stocks_json}\n\n"
-                            except Exception as e:
-                                print(f"Error serializing stock info: {e}")
-                    elif tool_name == 'get_market_movers':
-                        result = market_tools.get_market_movers()
-                        if result.get('success'):
-                            try:
-                                payload = {
-                                    "type": "movers",
-                                    "data": result
-                                }
-                                stocks_json = json.dumps(payload, default=str)
-                                yield f"data: [STOCKS] {stocks_json}\n\n"
-                            except Exception as e:
-                                print(f"Error serializing movers: {e}")
-                    elif tool_name == 'screen_stocks':
-                        result = market_tools.screen_stocks(**args)
-                        if result.get('success'):
-                            try:
-                                payload = {
-                                    "type": "list",
-                                    "title": f"{args.get('strategy', 'Stock').capitalize()} Stocks",
-                                    "data": result.get('stocks', [])
-                                }
-                                stocks_json = json.dumps(payload, default=str)
-                                yield f"data: [STOCKS] {stocks_json}\n\n"
-                            except Exception as e:
-                                print(f"Error serializing screened stocks: {e}")
-                    else:
-                        result = {"error": f"Unknown tool: {tool_name}"}
+                            result = {"error": f"Unknown tool: {tool_name}"}
                         
                     # Send result back to model
                     # We need to construct a FunctionResponse

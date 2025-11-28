@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Chat from "components/Chat";
 import { isAuthenticated } from "../../lib/auth";
 
-export default function ChatPage() {
+export default function SimulationPage() {
   const router = useRouter();
   const [isAuth, setIsAuth] = useState(false);
 
@@ -21,5 +21,5 @@ export default function ChatPage() {
     return <div className="p-6">Redirecting to login...</div>;
   }
 
-  return <Chat />;
+  return <Chat mode="simulation" />;
 }

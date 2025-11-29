@@ -18,6 +18,17 @@ urlpatterns = [
     path('conversations/<str:conversation_id>/stream/', views.stream_message, name='conversations-stream-message'),
     
     path('stocks/history/', views.get_stock_history, name='stock-history'),
+    path('backtest_strategy/', views.backtest_strategy, name='backtest_strategy'),
+    path('analyze_playground/', views.analyze_playground, name='analyze_playground'),
+    path('leaderboard/', views.get_leaderboard, name='get_leaderboard'),
+    path('leaderboard/seed/', views.seed_leaderboard, name='seed_leaderboard'),
+    path('market/movers/', views.get_market_movers_view, name='get_market_movers'),
+    path('simulation/portfolio/', views.get_simulated_portfolio_view, name='get_simulated_portfolio'),
+    path('webhook/whatsapp/', views.whatsapp_webhook, name='whatsapp-webhook'),
+    
+    # Goals / Portfolio Architect
+    path('goals/plan/', views.generate_goal_plan, name='generate_goal_plan'),
+    path('goals/create/', views.create_goal, name='create_goal'),
+    path('goals/', views.get_goals, name='get_goals'),
+    path('goals/<int:goal_id>/progress/', views.update_goal_progress, name='update_goal_progress'),
 ]
-
-

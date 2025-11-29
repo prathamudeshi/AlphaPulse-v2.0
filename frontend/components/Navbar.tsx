@@ -5,8 +5,12 @@ import { usePathname } from "next/navigation";
 import { isAuthenticated, logout } from "../lib/auth";
 
 const authenticatedNavLinks = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/chat", label: "Chat" },
   { href: "/simulation", label: "Simulation" },
+  { href: "/playground", label: "Playground" },
+  { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/goals", label: "Goals" },
   { href: "/profile", label: "Profile" },
   { href: "/tutorial", label: "Help" },
 ];
@@ -37,9 +41,9 @@ export default function Navbar() {
   return (
     <nav className="w-full bg-background border-b border-border px-6 py-4 flex items-center justify-between sticky top-0 z-50">
       <div className="flex items-center gap-8">
-        <Link href={authenticated ? "/chat" : "/"}>
+        <Link href={authenticated ? "/dashboard" : "/"}>
           <span className="text-xl font-medium text-text-primary">
-            AI Trading Bot
+            AlphaPulse
           </span>
         </Link>
         <div className="flex gap-1">

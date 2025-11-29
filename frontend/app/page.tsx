@@ -9,7 +9,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (isAuthenticated()) {
-      router.push("/chat");
+      router.push("/dashboard");
     }
   }, [router]);
 

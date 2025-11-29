@@ -17,6 +17,7 @@ export default function ProfilePage() {
     kiteconnect_key: "",
     kiteconnect_api_secret: "",
     kiteconnect_access_token: "",
+    phone_number: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -56,6 +57,7 @@ export default function ProfilePage() {
           kiteconnect_key: res.data.kiteconnect_key || "",
           kiteconnect_api_secret: res.data.kiteconnect_api_secret || "",
           kiteconnect_access_token: res.data.kiteconnect_access_token || "",
+          phone_number: res.data.phone_number || "",
         });
       })
       .catch(() => {
@@ -152,6 +154,22 @@ export default function ProfilePage() {
                   onChange={handleChange}
                   type="email"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1">
+                  Phone Number (WhatsApp)
+                </label>
+                <input
+                  className="w-full rounded-lg bg-input px-4 py-3 outline-none ring-1 ring-border focus:ring-primary transition-all"
+                  name="phone_number"
+                  value={form.phone_number}
+                  onChange={handleChange}
+                  type="tel"
+                  placeholder="e.g. +919876543210"
+                />
+                <p className="text-xs text-text-secondary mt-1">
+                  Required for WhatsApp integration. Include country code.
+                </p>
               </div>
             </div>
           </section>

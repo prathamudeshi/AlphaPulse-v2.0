@@ -173,6 +173,12 @@ def place_simulated_order(user_id, tradingsymbol: str, transaction_type: str, qu
             upsert=True
         )
         
+        # Sync with Leaderboard
+        try:
+            update_leaderboard_snapshot(user_id, cash, holdings)
+        except Exception as e:
+            print(f"Failed to update leaderboard: {e}")
+        
         return {
             "success": True, 
             "message": f"Simulated {transaction_type} order placed for {quantity} {symbol} at {current_price:.2f}",
@@ -187,6 +193,72 @@ def place_simulated_order(user_id, tradingsymbol: str, transaction_type: str, qu
         
     except Exception as e:
         return {"success": False, "message": f"Simulation error: {str(e)}"}
+
+def update_leaderboard_snapshot(user_id, cash, holdings):
+    """
+    Updates the SQL LeaderboardSnapshot based on Mongo Portfolio
+    """
+    from .models import LeaderboardSnapshot, StockData
+    from django.contrib.auth.models import User
+    
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return
+
+    # Calculate Total Value
+    total_value = cash
+    unique_sectors = set()
+    
+    for symbol, data in holdings.items():
+        qty = data['quantity']
+        if qty > 0:
+            # Get current price
+            price = 0
+            sector = "Unknown"
+            
+            # Try to get from StockData DB first (faster)
+            stock_obj = StockData.objects.filter(symbol=symbol).first()
+            if stock_obj:
+                price = float(stock_obj.current_price or 0)
+                sector = stock_obj.sector or "Unknown"
+            else:
+                # Fallback to live fetch
+                info = market_tools.get_stock_info(symbol)
+                price = info.get('current_price', 0)
+                # We don't have sector in live fetch easily without extra API calls, 
+                # so we might miss it if not in DB.
+            
+            total_value += (qty * price)
+            if sector and sector != "Unknown":
+                unique_sectors.add(sector)
+            else:
+                # If sector unknown, use symbol as proxy for diversification (weak proxy)
+                unique_sectors.add(symbol)
+
+    # Calculate Diversification Score (0-100)
+    # Simple logic: 10 points per unique sector, max 100
+    div_score = min(len(unique_sectors) * 10, 100)
+    
+    # Calculate Win Rate (Placeholder for now as we don't track closed trades history yet)
+    # We'll use "Profitable Current Positions" as a proxy
+    profitable_pos = 0
+    total_pos = 0
+    for symbol, data in holdings.items():
+        qty = data['quantity']
+        if qty > 0:
+            avg = data['average_price']
+            # Get price again (optimization: cache it above)
+            # For now, just re-fetch or assume price is roughly same as above loop
+            # Let's just use a simple heuristic if we don't want to re-fetch
+            pass 
+            
+    # Update Snapshot
+    snapshot, created = LeaderboardSnapshot.objects.get_or_create(user=user)
+    snapshot.total_value = total_value
+    snapshot.diversification_score = div_score
+    # snapshot.win_rate = ... # Keep existing or update if we implement logic
+    snapshot.save()
 
 def get_simulated_holdings(user_id) -> Dict[str, Any]:
     """

@@ -32,7 +32,8 @@ def get_stock_info(symbol: str) -> Dict[str, Any]:
         info = ticker.info
         
         # Extract relevant fields
-        return {
+        # Extract relevant fields
+        result = {
             "success": True,
             "symbol": symbol.upper(),
             "name": info.get("longName", symbol),
@@ -59,10 +60,13 @@ def get_stock_info(symbol: str) -> Dict[str, Any]:
                 # Convert to list of dicts
                 history_data = []
                 for _, row in hist.iterrows():
-                    history_data.append({
-                        "time": row['Datetime'].isoformat(),
-                        "value": round(row['Close'], 2)
-                    })
+                    # Handle different column names/types
+                    ts = row.get('Datetime') or row.get('Date')
+                    if ts:
+                        history_data.append({
+                            "time": ts.isoformat(),
+                            "value": round(row['Close'], 2)
+                        })
                 result["history_1d"] = history_data
         except Exception as e:
             print(f"Failed to fetch 1d history: {e}")
@@ -106,15 +110,31 @@ def get_market_movers() -> Dict[str, Any]:
         # Sort
         changes = changes.sort_values(ascending=False)
         
+        def clean_val(val):
+            import math
+            if pd.isna(val) or math.isnan(val) or math.isinf(val):
+                return 0.0
+            return round(float(val), 2)
+
         top_gainers = []
         for sym, change in changes.head(5).items():
             clean_sym = sym.replace(".NS", "")
-            top_gainers.append({"symbol": clean_sym, "change_pct": round(change, 2), "price": round(current_prices[sym], 2)})
+            price = current_prices.get(sym, 0)
+            top_gainers.append({
+                "symbol": clean_sym, 
+                "change_pct": clean_val(change), 
+                "price": clean_val(price)
+            })
             
         top_losers = []
         for sym, change in changes.tail(5).items():
             clean_sym = sym.replace(".NS", "")
-            top_losers.append({"symbol": clean_sym, "change_pct": round(change, 2), "price": round(current_prices[sym], 2)})
+            price = current_prices.get(sym, 0)
+            top_losers.append({
+                "symbol": clean_sym, 
+                "change_pct": clean_val(change), 
+                "price": clean_val(price)
+            })
             
         return {
             "success": True,

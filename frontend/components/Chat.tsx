@@ -40,6 +40,13 @@ type Message = {
 };
 type Conversation = { id: string; title: string; messages: Message[] };
 
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 
@@ -63,6 +70,36 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
   const [chartPeriod, setChartPeriod] = useState("1d");
   const [chartData, setChartData] = useState<any[]>([]);
   const [loadingChart, setLoadingChart] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // File Upload State
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  // Speech Recognition State
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const textBeforeListeningRef = useRef("");
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("File select triggered", e.target.files);
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files);
+      console.log("Adding files:", newFiles);
+      setFiles((prev) => [...prev, ...newFiles]);
+    }
+    // Reset input so same file can be selected again if needed
+    // Use setTimeout to ensure the event finishes processing
+    const target = e.target;
+    setTimeout(() => {
+        if (target) target.value = "";
+    }, 100);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   useEffect(() => {
     const t = localStorage.getItem("access");
@@ -124,7 +161,10 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
     }
 
     const userText = input;
+    const currentFiles = files; // Capture current files
     setInput("");
+    setFiles([]); // Clear files
+    setIsGenerating(true);
 
     const optimistic: Conversation[] = conversations.map((c) =>
       c.id === currentId
@@ -132,7 +172,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
             ...c,
             messages: [
               ...c.messages,
-              { role: "user", content: userText },
+              { role: "user", content: userText + (currentFiles.length > 0 ? `\n[Attached ${currentFiles.length} file(s)]` : "") },
               { role: "assistant", content: "" },
             ],
           }
@@ -145,7 +185,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
              ...c,
              messages: [
                  ...c.messages,
-                 { role: "user", content: userText },
+                 { role: "user", content: userText + (currentFiles.length > 0 ? `\n[Attached ${currentFiles.length} file(s)]` : "") },
                  { role: "assistant", content: "" }
              ]
          } : c));
@@ -155,13 +195,29 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
 
     try {
       const url = `${API_BASE}/conversations/${currentId}/stream/`;
+      
+      let body;
+      const headers: any = {
+          Authorization: `Bearer ${token}`,
+      };
+
+      if (currentFiles.length > 0) {
+          const formData = new FormData();
+          formData.append("content", userText);
+          currentFiles.forEach((file) => {
+              formData.append("files", file);
+          });
+          body = formData;
+          // Do NOT set Content-Type for FormData, let browser set it with boundary
+      } else {
+          headers["Content-Type"] = "application/json";
+          body = JSON.stringify({ content: userText });
+      }
+
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ content: userText }),
+        headers: headers,
+        body: body,
       });
 
       if (!res.body) return;
@@ -215,6 +271,15 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
             }
             continue;
           }
+          
+          // Check for special title update event
+          if (data.startsWith("[TITLE]")) {
+              const newTitle = data.replace("[TITLE]", "").trim();
+              setConversations((prev) =>
+                  prev.map((c) => (c.id === activeId ? { ...c, title: newTitle } : c))
+              );
+              continue;
+          }
 
           setConversations((prev) =>
             prev.map((c) => {
@@ -240,6 +305,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
     } catch (e) {
       toast.error("Failed to send message");
     } finally {
+      setIsGenerating(false);
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   };
@@ -295,7 +361,20 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
               params: { symbol, period },
               headers: { Authorization: `Bearer ${token}` }
           });
-          setChartData(res.data);
+          let rawData = [];
+          if (Array.isArray(res.data)) {
+              rawData = res.data;
+          } else {
+              rawData = res.data.data || [];
+          }
+          
+          // Map to chart format (time, value)
+          const formattedData = rawData.map((item: any) => ({
+              time: item.time || item.date,
+              value: item.value || item.close
+          }));
+          
+          setChartData(formattedData);
       } catch (e) {
           console.error("Failed to fetch history", e);
           toast.error("Failed to load chart data");
@@ -309,6 +388,57 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
           setChartPeriod(period);
           fetchStockHistory(sidebarData.symbol, period);
       }
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    textBeforeListeningRef.current = input;
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      let currentTranscript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        currentTranscript += event.results[i][0].transcript;
+      }
+      const prefix = textBeforeListeningRef.current;
+      const spacer = prefix && !prefix.endsWith(" ") ? " " : "";
+      setInput(prefix + spacer + currentTranscript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+      // Don't toast on 'no-speech' or 'aborted' as it can be annoying
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          toast.error("Error occurred in speech recognition.");
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
   };
 
   return (
@@ -476,8 +606,11 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
                   } animate-fade-in`}
                 >
                   {m.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-red-500 flex items-center justify-center flex-shrink-0 mt-1">
-                      <span className="text-xs font-bold text-white">AI</span>
+                    <div className="relative w-8 h-8 flex-shrink-0 mt-1">
+                      <div className={`absolute inset-0 rounded-full bg-gradient-to-tr from-blue-500 to-red-500 ${isGenerating && i === active.messages.length - 1 ? 'animate-spin' : ''}`} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xs font-bold text-white relative z-10">AI</span>
+                      </div>
                     </div>
                   )}
                   <div
@@ -509,8 +642,58 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
         {/* Input Area */}
         <div className="absolute bottom-0 left-0 right-0 bg-background p-4">
           <div className="max-w-3xl mx-auto">
+            {/* Selected Files Preview */}
+            {files.length > 0 && (
+              <div className="flex gap-2 px-4 pb-2 overflow-x-auto">
+                {files.map((file, i) => (
+                  <div key={i} className="relative group flex-shrink-0">
+                    {file.type.startsWith("image/") ? (
+                      <div className="w-16 h-16 rounded-lg overflow-hidden border border-border">
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt="preview"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg border border-border bg-surface-hover flex items-center justify-center flex-col p-1">
+                        <span className="text-[10px] text-text-secondary truncate w-full text-center">
+                          {file.name}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => removeFile(i)}
+                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="bg-surface rounded-full flex items-center px-4 py-3 gap-3 ring-1 ring-transparent focus-within:ring-border/50 transition-all">
-              <button className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors">
+              <input
+                type="file"
+                multiple
+                ref={fileInputRef}
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                ref={imageInputRef}
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors"
+              >
                 <Plus className="w-5 h-5" />
               </button>
               <input
@@ -525,10 +708,16 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
                 placeholder="Enter a prompt here"
                 className="flex-1 bg-transparent outline-none text-text-primary placeholder-text-secondary"
               />
-              <button className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors">
+              <button 
+                onClick={() => imageInputRef.current?.click()}
+                className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors"
+              >
                 <ImageIcon className="w-5 h-5" />
               </button>
-              <button className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors">
+              <button 
+                onClick={toggleListening}
+                className={`p-2 hover:bg-surface-hover rounded-full transition-colors ${isListening ? "text-red-500 animate-pulse" : "text-text-secondary"}`}
+              >
                 <Mic className="w-5 h-5" />
               </button>
               {input.trim() && (

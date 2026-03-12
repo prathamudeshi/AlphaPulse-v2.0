@@ -34,7 +34,7 @@ except Exception as e:
 
 
 def get_mongo():
-    client = MongoClient(settings.MONGODB_URI)
+    client = MongoClient(settings.MONGODB_URI, serverSelectionTimeoutMS=5000)
     db = client[settings.MONGODB_DB]
     return client, db
 

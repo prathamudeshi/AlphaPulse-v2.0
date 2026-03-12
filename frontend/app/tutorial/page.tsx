@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import { helpItems } from "./data";
 
 export default function TutorialPage() {
@@ -38,21 +39,30 @@ export default function TutorialPage() {
               className="bg-surface border border-border rounded-2xl p-6 cursor-pointer hover:bg-surface-hover transition-colors group relative overflow-hidden"
             >
               <div className="space-y-4">
-                <div className="aspect-video rounded-lg overflow-hidden bg-background/50 relative">
-                    <img 
-                        src={item.image} 
-                        alt={item.title}
-                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-transparent opacity-60" />
+                <div className={`aspect-video rounded-xl overflow-hidden relative bg-gradient-to-br ${item.gradient} flex items-center justify-center group-hover:scale-[1.02] transition-transform duration-500`}>
+                  {item.image ? (
+                    <>
+                      <img src={item.image} alt={item.title} className="w-full h-full object-cover object-top opacity-90 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
+                      <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-md p-1.5 rounded-lg text-white/80">
+                        <item.icon className="w-4 h-4" />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="absolute inset-0 bg-black/10" />
+                      <item.icon className="w-16 h-16 text-white/90 drop-shadow-lg" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    </>
+                  )}
                 </div>
                 <div>
-                    <motion.h2 className="text-xl font-semibold text-text-primary mb-2 group-hover:text-primary transition-colors">
-                        {item.title}
-                    </motion.h2>
-                    <motion.p className="text-text-secondary text-sm line-clamp-2">
-                        {item.shortDescription}
-                    </motion.p>
+                  <motion.h2 className="text-xl font-semibold text-text-primary mb-2 group-hover:text-primary transition-colors">
+                    {item.title}
+                  </motion.h2>
+                  <motion.p className="text-text-secondary text-sm line-clamp-2">
+                    {item.shortDescription}
+                  </motion.p>
                 </div>
               </div>
             </motion.div>
@@ -88,7 +98,7 @@ export default function TutorialPage() {
                         >
                           <X className="w-5 h-5" />
                         </button>
-                        
+
                         <div className="p-6 md:p-8 space-y-6">
                           <div className="space-y-2">
                             <motion.h2 className="text-3xl font-bold text-text-primary">
@@ -99,18 +109,29 @@ export default function TutorialPage() {
                             </motion.p>
                           </div>
 
-                          <div className="rounded-xl overflow-hidden border border-border shadow-lg bg-background">
-                            <img
-                              src={item.image}
-                              alt={item.title}
-                              className="w-full h-auto object-cover"
-                            />
+                          <div className={`rounded-xl overflow-hidden border border-border shadow-lg aspect-video relative bg-gradient-to-br ${item.gradient} flex items-center justify-center`}>
+                            {item.image ? (
+                              <img src={item.image} alt={item.title} className="w-full h-full object-cover object-top" />
+                            ) : (
+                              <>
+                                <div className="absolute inset-0 bg-black/10" />
+                                <item.icon className="w-32 h-32 text-white/90 drop-shadow-2xl" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                              </>
+                            )}
                           </div>
 
                           <div className="prose prose-invert max-w-none text-text-secondary">
-                            <p className="text-base leading-relaxed whitespace-pre-wrap">
-                              {item.fullDescription}
-                            </p>
+                            <ReactMarkdown
+                              components={{
+                                strong: ({ node, ...props }: any) => <span className="font-bold text-text-primary" {...props} />,
+                                ul: ({ node, ...props }: any) => <ul className="list-disc pl-4 space-y-1" {...props} />,
+                                li: ({ node, ...props }: any) => <li className="marker:text-primary" {...props} />,
+                                p: ({ node, ...props }: any) => <p className="mb-4 last:mb-0 leading-relaxed" {...props} />,
+                              }}
+                            >
+                              {item.fullDescription as string}
+                            </ReactMarkdown>
                           </div>
                         </div>
                       </div>

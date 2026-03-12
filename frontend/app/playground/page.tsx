@@ -47,15 +47,15 @@ export default function Playground() {
   };
 
   return (
-    <div className="h-screen bg-background text-text-primary font-sans flex flex-col overflow-hidden">
-      
-      <PlaygroundTutorial 
-        run={runTutorial} 
-        setRun={setRunTutorial} 
+    <div className="h-screen bg-background text-text-primary font-sans flex flex-col overflow-hidden" style={{ height: '100vh', overflow: 'hidden' }}>
+
+      <PlaygroundTutorial
+        run={runTutorial}
+        setRun={setRunTutorial}
         setIsSidebarOpen={setIsSidebarOpen}
       />
 
-      <header className="p-6 pb-0 flex justify-between items-start" id="tutorial-welcome">
+      <header className="p-6 pb-0 flex justify-between items-start shrink-0" id="tutorial-welcome">
         <div>
           <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
             Algo Playground
@@ -73,10 +73,10 @@ export default function Playground() {
           <HelpCircle size={24} />
         </button>
       </header>
-      
-      <div className="flex-1 flex overflow-hidden">
+
+      <div className="flex-1 flex overflow-hidden p-6 gap-6">
         {/* Sidebar */}
-        <PlaygroundSidebar 
+        <PlaygroundSidebar
           isOpen={isSidebarOpen}
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           symbol={symbol}
@@ -90,8 +90,8 @@ export default function Playground() {
         />
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden max-h-[91%]">
-          <div className="flex-1 p-6 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div className="flex-1 overflow-hidden">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
               {/* Center: Chart (8 cols) */}
               <div className="lg:col-span-8 flex flex-col gap-6 h-full overflow-hidden">
@@ -104,10 +104,10 @@ export default function Playground() {
                       </span>
                     )}
                   </h2>
-                  
+
                   <div className="flex-1 min-h-0">
-                    <BacktestChart 
-                      data={results?.equity_curve || []} 
+                    <BacktestChart
+                      data={results?.equity_curve || []}
                       trades={results?.trades || []}
                       strategy={strategy}
                     />
@@ -117,7 +117,7 @@ export default function Playground() {
 
               {/* Right: Chat (4 cols) */}
               <div className="lg:col-span-4 h-full overflow-hidden">
-                <PlaygroundChat 
+                <PlaygroundChat
                   results={results}
                   strategy={strategy}
                   params={params}

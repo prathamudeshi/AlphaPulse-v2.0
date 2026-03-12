@@ -28,6 +28,7 @@ import {
   ArrowDownRight,
   DollarSign,
   Activity,
+  Target,
 } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
@@ -50,6 +51,15 @@ declare global {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 
+const ALL_SUGGESTIONS = [
+  { id: 'holdings', icon: Compass, text: "Get holdings" },
+  { id: 'buy', icon: Lightbulb, text: "Buy a share" },
+  { id: 'sell', icon: Code, text: "Sell a share" },
+  { id: 'goals', icon: Target, text: "Set Goals" },
+  { id: 'quote', icon: DollarSign, text: "Get Quote" },
+  { id: 'movers', icon: TrendingUp, text: "Bullish/Bearish Stocks" },
+];
+
 export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }) {
   const [token, setToken] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -60,12 +70,12 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
-  
+
   // Sidebar State
   const [sidebarData, setSidebarData] = useState<any>(null);
   const [sidebarMode, setSidebarMode] = useState<'holdings' | 'single' | 'list' | 'movers' | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
-  
+
   // Chart State
   const [chartPeriod, setChartPeriod] = useState("1d");
   const [chartData, setChartData] = useState<any[]>([]);
@@ -82,6 +92,36 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
   const recognitionRef = useRef<any>(null);
   const textBeforeListeningRef = useRef("");
 
+  // Suggestion State
+  const [suggestionUsage, setSuggestionUsage] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const storedUsage = localStorage.getItem("chat_suggestion_usage");
+    if (storedUsage) {
+      try {
+        setSuggestionUsage(JSON.parse(storedUsage));
+      } catch (e) {
+        console.error("Failed to parse suggestion usage", e);
+      }
+    }
+  }, []);
+
+  const handleSuggestionClick = (item: typeof ALL_SUGGESTIONS[0]) => {
+    setInput(item.text);
+
+    const newUsage = { ...suggestionUsage, [item.id]: (suggestionUsage[item.id] || 0) + 1 };
+    setSuggestionUsage(newUsage);
+    localStorage.setItem("chat_suggestion_usage", JSON.stringify(newUsage));
+  };
+
+  const sortedSuggestions = useMemo(() => {
+    return [...ALL_SUGGESTIONS].sort((a, b) => {
+      const countA = suggestionUsage[a.id] || 0;
+      const countB = suggestionUsage[b.id] || 0;
+      return countB - countA;
+    }).slice(0, 3);
+  }, [suggestionUsage]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     console.log("File select triggered", e.target.files);
     if (e.target.files && e.target.files.length > 0) {
@@ -93,7 +133,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
     // Use setTimeout to ensure the event finishes processing
     const target = e.target;
     setTimeout(() => {
-        if (target) target.value = "";
+      if (target) target.value = "";
     }, 100);
   };
 
@@ -119,7 +159,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
         // or select the first one. Let's select first one for now.
         if (res.data.length && !activeId) setActiveId(res.data[0].id);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [token, mode]);
 
   const active = useMemo(
@@ -141,23 +181,23 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
 
   const sendMessage = async () => {
     if (!token || !input.trim()) return;
-    
+
     let currentId = activeId;
     if (!currentId) {
-        try {
-            const res = await axios.post(
-                `${API_BASE}/conversations/create/`,
-                { title: "New chat", mode },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            const convo = res.data as Conversation;
-            setConversations([convo, ...conversations]);
-            setActiveId(convo.id);
-            currentId = convo.id;
-        } catch (e) {
-            toast.error("Failed to start conversation");
-            return;
-        }
+      try {
+        const res = await axios.post(
+          `${API_BASE}/conversations/create/`,
+          { title: "New chat", mode },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const convo = res.data as Conversation;
+        setConversations([convo, ...conversations]);
+        setActiveId(convo.id);
+        currentId = convo.id;
+      } catch (e) {
+        toast.error("Failed to start conversation");
+        return;
+      }
     }
 
     const userText = input;
@@ -169,49 +209,49 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
     const optimistic: Conversation[] = conversations.map((c) =>
       c.id === currentId
         ? {
-            ...c,
-            messages: [
-              ...c.messages,
-              { role: "user", content: userText + (currentFiles.length > 0 ? `\n[Attached ${currentFiles.length} file(s)]` : "") },
-              { role: "assistant", content: "" },
-            ],
-          }
+          ...c,
+          messages: [
+            ...c.messages,
+            { role: "user", content: userText + (currentFiles.length > 0 ? `\n[Attached ${currentFiles.length} file(s)]` : "") },
+            { role: "assistant", content: "" },
+          ],
+        }
         : c
     );
     // If we just created it, we need to add it to optimistic update properly
     if (!activeId) {
-         // It's already added in setConversations above, but we need to update it with the message
-         setConversations(prev => prev.map(c => c.id === currentId ? {
-             ...c,
-             messages: [
-                 ...c.messages,
-                 { role: "user", content: userText + (currentFiles.length > 0 ? `\n[Attached ${currentFiles.length} file(s)]` : "") },
-                 { role: "assistant", content: "" }
-             ]
-         } : c));
+      // It's already added in setConversations above, but we need to update it with the message
+      setConversations(prev => prev.map(c => c.id === currentId ? {
+        ...c,
+        messages: [
+          ...c.messages,
+          { role: "user", content: userText + (currentFiles.length > 0 ? `\n[Attached ${currentFiles.length} file(s)]` : "") },
+          { role: "assistant", content: "" }
+        ]
+      } : c));
     } else {
-        setConversations(optimistic);
+      setConversations(optimistic);
     }
 
     try {
       const url = `${API_BASE}/conversations/${currentId}/stream/`;
-      
+
       let body;
       const headers: any = {
-          Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       };
 
       if (currentFiles.length > 0) {
-          const formData = new FormData();
-          formData.append("content", userText);
-          currentFiles.forEach((file) => {
-              formData.append("files", file);
-          });
-          body = formData;
-          // Do NOT set Content-Type for FormData, let browser set it with boundary
+        const formData = new FormData();
+        formData.append("content", userText);
+        currentFiles.forEach((file) => {
+          formData.append("files", file);
+        });
+        body = formData;
+        // Do NOT set Content-Type for FormData, let browser set it with boundary
       } else {
-          headers["Content-Type"] = "application/json";
-          body = JSON.stringify({ content: userText });
+        headers["Content-Type"] = "application/json";
+        body = JSON.stringify({ content: userText });
       }
 
       const res = await fetch(url, {
@@ -237,17 +277,17 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
             done = true;
             break;
           }
-          
+
           // Check for special holdings data event
           if (data.startsWith("[HOLDINGS]")) {
             try {
-                const jsonStr = data.replace("[HOLDINGS]", "").trim();
-                const holdings = JSON.parse(jsonStr);
-                setSidebarData(holdings);
-                setSidebarMode('holdings');
-                setShowSidebar(true);
+              const jsonStr = data.replace("[HOLDINGS]", "").trim();
+              const holdings = JSON.parse(jsonStr);
+              setSidebarData(holdings);
+              setSidebarMode('holdings');
+              setShowSidebar(true);
             } catch (e) {
-                console.error("Failed to parse holdings data", e);
+              console.error("Failed to parse holdings data", e);
             }
             continue;
           }
@@ -255,35 +295,35 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
           // Check for special stocks data event
           if (data.startsWith("[STOCKS]")) {
             try {
-                const jsonStr = data.replace("[STOCKS]", "").trim();
-                const payload = JSON.parse(jsonStr);
-                setSidebarData(payload.data);
-                setSidebarMode(payload.type); // 'single', 'list', 'movers'
-                setShowSidebar(true);
-                
-                // Initialize chart data if single stock
-                if (payload.type === 'single' && payload.data.history_1d) {
-                    setChartData(payload.data.history_1d);
-                    setChartPeriod("1d");
-                }
+              const jsonStr = data.replace("[STOCKS]", "").trim();
+              const payload = JSON.parse(jsonStr);
+              setSidebarData(payload.data);
+              setSidebarMode(payload.type); // 'single', 'list', 'movers'
+              setShowSidebar(true);
+
+              // Initialize chart data if single stock
+              if (payload.type === 'single' && payload.data.history_1d) {
+                setChartData(payload.data.history_1d);
+                setChartPeriod("1d");
+              }
             } catch (e) {
-                console.error("Failed to parse stocks data", e);
+              console.error("Failed to parse stocks data", e);
             }
             continue;
           }
-          
+
           // Check for special title update event
           if (data.startsWith("[TITLE]")) {
-              const newTitle = data.replace("[TITLE]", "").trim();
-              setConversations((prev) =>
-                  prev.map((c) => (c.id === activeId ? { ...c, title: newTitle } : c))
-              );
-              continue;
+            const newTitle = data.replace("[TITLE]", "").trim();
+            setConversations((prev) =>
+              prev.map((c) => (c.id === currentId ? { ...c, title: newTitle } : c))
+            );
+            continue;
           }
 
           setConversations((prev) =>
             prev.map((c) => {
-              if (c.id !== activeId) return c;
+              if (c.id !== currentId) return c;
               const msgs = [...c.messages];
               const last = msgs[msgs.length - 1];
               if (last && last.role === "assistant") {
@@ -296,11 +336,11 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
       }
 
       const updated = await axios.get(
-        `${API_BASE}/conversations/${activeId}/`,
+        `${API_BASE}/conversations/${currentId}/`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setConversations((prev) =>
-        prev.map((c) => (c.id === activeId ? updated.data : c))
+        prev.map((c) => (c.id === currentId ? updated.data : c))
       );
     } catch (e) {
       toast.error("Failed to send message");
@@ -354,40 +394,40 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
   };
 
   const fetchStockHistory = async (symbol: string, period: string) => {
-      if (!token) return;
-      setLoadingChart(true);
-      try {
-          const res = await axios.get(`${API_BASE}/stocks/history/`, {
-              params: { symbol, period },
-              headers: { Authorization: `Bearer ${token}` }
-          });
-          let rawData = [];
-          if (Array.isArray(res.data)) {
-              rawData = res.data;
-          } else {
-              rawData = res.data.data || [];
-          }
-          
-          // Map to chart format (time, value)
-          const formattedData = rawData.map((item: any) => ({
-              time: item.time || item.date,
-              value: item.value || item.close
-          }));
-          
-          setChartData(formattedData);
-      } catch (e) {
-          console.error("Failed to fetch history", e);
-          toast.error("Failed to load chart data");
-      } finally {
-          setLoadingChart(false);
+    if (!token) return;
+    setLoadingChart(true);
+    try {
+      const res = await axios.get(`${API_BASE}/stocks/history/`, {
+        params: { symbol, period },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      let rawData = [];
+      if (Array.isArray(res.data)) {
+        rawData = res.data;
+      } else {
+        rawData = res.data.data || [];
       }
+
+      // Map to chart format (time, value)
+      const formattedData = rawData.map((item: any) => ({
+        time: item.time || item.date,
+        value: item.value || item.close
+      }));
+
+      setChartData(formattedData);
+    } catch (e) {
+      console.error("Failed to fetch history", e);
+      toast.error("Failed to load chart data");
+    } finally {
+      setLoadingChart(false);
+    }
   };
 
   const handlePeriodChange = (period: string) => {
-      if (sidebarMode === 'single' && sidebarData?.symbol) {
-          setChartPeriod(period);
-          fetchStockHistory(sidebarData.symbol, period);
-      }
+    if (sidebarMode === 'single' && sidebarData?.symbol) {
+      setChartPeriod(period);
+      fetchStockHistory(sidebarData.symbol, period);
+    }
   };
 
   const toggleListening = () => {
@@ -430,7 +470,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
       setIsListening(false);
       // Don't toast on 'no-speech' or 'aborted' as it can be annoying
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
-          toast.error("Error occurred in speech recognition.");
+        toast.error("Error occurred in speech recognition.");
       }
     };
 
@@ -445,9 +485,8 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
     <div className="flex h-full bg-background text-text-primary overflow-hidden relative">
       {/* Sidebar */}
       <aside
-        className={`${
-          sidebarOpen ? "w-72" : "w-0"
-        } bg-sidebar transition-all duration-300 ease-in-out flex flex-col border-r border-border overflow-hidden flex-shrink-0`}
+        className={`${sidebarOpen ? "w-72" : "w-0"
+          } bg-sidebar transition-all duration-300 ease-in-out flex flex-col border-r border-border overflow-hidden flex-shrink-0`}
       >
         <div className="p-4 h-full flex flex-col">
           <button
@@ -477,11 +516,10 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
             {conversations.map((c) => (
               <div
                 key={c.id}
-                className={`group flex items-center justify-between px-3 py-2 rounded-full cursor-pointer text-sm ${
-                  activeId === c.id
-                    ? "bg-primary/20 text-primary"
-                    : "hover:bg-surface-hover text-text-primary"
-                }`}
+                className={`group flex items-center justify-between px-3 py-2 rounded-full cursor-pointer text-sm ${activeId === c.id
+                  ? "bg-primary/20 text-primary"
+                  : "hover:bg-surface-hover text-text-primary"
+                  }`}
                 onClick={() => setActiveId(c.id)}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -541,12 +579,12 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
               </div>
             ))}
           </div>
-          
+
           <div className="mt-auto pt-4 border-t border-border">
-             <Link href="/profile" className="flex items-center gap-3 px-3 py-2 rounded-full hover:bg-surface-hover text-text-secondary hover:text-text-primary transition-colors text-sm">
-                <Settings className="w-5 h-5" />
-                <span>Settings</span>
-             </Link>
+            <Link href="/profile" className="flex items-center gap-3 px-3 py-2 rounded-full hover:bg-surface-hover text-text-secondary hover:text-text-primary transition-colors text-sm">
+              <Settings className="w-5 h-5" />
+              <span>Settings</span>
+            </Link>
           </div>
         </div>
       </aside>
@@ -577,14 +615,10 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
                   How can I help you today?
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
-                  {[
-                    { icon: Compass, text: "Get holdings" },
-                    { icon: Lightbulb, text: "Buy a share" },
-                    { icon: Code, text: "Sell a share" },
-                  ].map((item, i) => (
+                  {sortedSuggestions.map((item, i) => (
                     <button
-                      key={i}
-                      onClick={() => setInput(item.text)}
+                      key={item.id}
+                      onClick={() => handleSuggestionClick(item)}
                       className="p-4 bg-surface hover:bg-surface-hover rounded-xl text-left transition-colors flex flex-col gap-4 h-40 justify-between"
                     >
                       <span className="text-text-primary font-medium">
@@ -601,9 +635,8 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
               active.messages.map((m, i) => (
                 <div
                   key={i}
-                  className={`flex gap-4 ${
-                    m.role === "user" ? "justify-end" : "justify-start"
-                  } animate-fade-in`}
+                  className={`flex gap-4 ${m.role === "user" ? "justify-end" : "justify-start"
+                    } animate-fade-in`}
                 >
                   {m.role === "assistant" && (
                     <div className="relative w-8 h-8 flex-shrink-0 mt-1">
@@ -614,11 +647,10 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
                     </div>
                   )}
                   <div
-                    className={`max-w-[80%] rounded-2xl px-5 py-3 leading-relaxed ${
-                      m.role === "user"
-                        ? "bg-surface text-text-primary rounded-br-none"
-                        : "text-text-primary"
-                    }`}
+                    className={`max-w-[80%] rounded-2xl px-5 py-3 leading-relaxed ${m.role === "user"
+                      ? "bg-surface text-text-primary rounded-br-none"
+                      : "text-text-primary"
+                      }`}
                   >
                     {m.role === "assistant" ? (
                       <ReactMarkdown
@@ -689,8 +721,8 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
                 className="hidden"
                 onChange={handleFileSelect}
               />
-              
-              <button 
+
+              <button
                 onClick={() => fileInputRef.current?.click()}
                 className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors"
               >
@@ -708,13 +740,13 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
                 placeholder="Enter a prompt here"
                 className="flex-1 bg-transparent outline-none text-text-primary placeholder-text-secondary"
               />
-              <button 
+              <button
                 onClick={() => imageInputRef.current?.click()}
                 className="p-2 hover:bg-surface-hover rounded-full text-text-secondary transition-colors"
               >
                 <ImageIcon className="w-5 h-5" />
               </button>
-              <button 
+              <button
                 onClick={toggleListening}
                 className={`p-2 hover:bg-surface-hover rounded-full transition-colors ${isListening ? "text-red-500 animate-pulse" : "text-text-secondary"}`}
               >
@@ -741,9 +773,8 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
 
       {/* Sidebar Canvas */}
       <div
-        className={`${
-          showSidebar ? "w-[450px]" : "w-0"
-        } bg-surface border-l border-border shadow-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden`}
+        className={`${showSidebar ? "w-[450px]" : "w-0"
+          } bg-surface border-l border-border shadow-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden`}
       >
         <div className="flex items-center justify-between p-4 border-b border-border min-w-[300px]">
           <h2 className="text-lg font-medium flex items-center gap-2">
@@ -751,7 +782,7 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
             {sidebarMode === 'single' && <Activity className="w-5 h-5 text-primary" />}
             {sidebarMode === 'list' && <BarChart3 className="w-5 h-5 text-primary" />}
             {sidebarMode === 'movers' && <TrendingUp className="w-5 h-5 text-primary" />}
-            
+
             {sidebarMode === 'holdings' && "Portfolio Analysis"}
             {sidebarMode === 'single' && "Stock Details"}
             {sidebarMode === 'list' && "Market Screener"}
@@ -766,391 +797,387 @@ export default function Chat({ mode = "real" }: { mode?: "real" | "simulation" }
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 min-w-[300px] space-y-6">
-          
+
           {/* HOLDINGS VIEW */}
           {sidebarMode === 'holdings' && sidebarData && (
-             sidebarData.length > 0 ? (
-            <>
-              {/* Summary Cards */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                  <div className="text-xs text-text-secondary mb-1">Total Value</div>
-                  <div className="text-lg font-semibold text-text-primary">
-                    ₹
-                    {sidebarData
-                      .reduce((acc: any, h: any) => acc + (h.last_price * h.quantity), 0)
-                      .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            sidebarData.length > 0 ? (
+              <>
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                    <div className="text-xs text-text-secondary mb-1">Total Value</div>
+                    <div className="text-lg font-semibold text-text-primary">
+                      ₹
+                      {sidebarData
+                        .reduce((acc: any, h: any) => acc + (h.last_price * h.quantity), 0)
+                        .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </div>
                   </div>
-                </div>
-                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                  <div className="text-xs text-text-secondary mb-1">Total P&L</div>
-                  <div className={`text-lg font-semibold ${
-                    sidebarData.reduce((acc: any, h: any) => acc + h.pnl, 0) >= 0 
-                      ? "text-green-400" 
-                      : "text-red-400"
-                  }`}>
-                    {sidebarData.reduce((acc: any, h: any) => acc + h.pnl, 0) >= 0 ? "+" : ""}
-                    {sidebarData
-                      .reduce((acc: any, h: any) => acc + h.pnl, 0)
-                      .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                  <div className="text-xs text-text-secondary mb-1">Invested</div>
-                  <div className="text-lg font-semibold text-text-primary">
-                    ₹
-                    {sidebarData
-                      .reduce((acc: any, h: any) => acc + (h.average_price * h.quantity), 0)
-                      .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                 <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                  <div className="text-xs text-text-secondary mb-1">Day's Change</div>
-                  <div className={`text-lg font-semibold ${
-                     sidebarData.reduce((acc: any, h: any) => acc + ((h.last_price - h.close_price) * h.quantity), 0) >= 0
+                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                    <div className="text-xs text-text-secondary mb-1">Total P&L</div>
+                    <div className={`text-lg font-semibold ${sidebarData.reduce((acc: any, h: any) => acc + h.pnl, 0) >= 0
                       ? "text-green-400"
                       : "text-red-400"
-                  }`}>
-                     {sidebarData.reduce((acc: any, h: any) => acc + ((h.last_price - h.close_price) * h.quantity), 0) >= 0 ? "+" : ""}
-                    {sidebarData
-                      .reduce((acc: any, h: any) => acc + ((h.last_price - h.close_price) * h.quantity), 0)
-                      .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      }`}>
+                      {sidebarData.reduce((acc: any, h: any) => acc + h.pnl, 0) >= 0 ? "+" : ""}
+                      {sidebarData
+                        .reduce((acc: any, h: any) => acc + h.pnl, 0)
+                        .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                    <div className="text-xs text-text-secondary mb-1">Invested</div>
+                    <div className="text-lg font-semibold text-text-primary">
+                      ₹
+                      {sidebarData
+                        .reduce((acc: any, h: any) => acc + (h.average_price * h.quantity), 0)
+                        .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                    <div className="text-xs text-text-secondary mb-1">Day's Change</div>
+                    <div className={`text-lg font-semibold ${sidebarData.reduce((acc: any, h: any) => acc + ((h.last_price - h.close_price) * h.quantity), 0) >= 0
+                      ? "text-green-400"
+                      : "text-red-400"
+                      }`}>
+                      {sidebarData.reduce((acc: any, h: any) => acc + ((h.last_price - h.close_price) * h.quantity), 0) >= 0 ? "+" : ""}
+                      {sidebarData
+                        .reduce((acc: any, h: any) => acc + ((h.last_price - h.close_price) * h.quantity), 0)
+                        .toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Allocation Chart */}
-              <div className="bg-surface-hover/10 rounded-xl border border-border p-4">
-                <h3 className="text-sm font-medium text-text-secondary mb-4">Asset Allocation</h3>
-                <div className="h-[200px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={(() => {
-                          const sorted = [...sidebarData].sort((a: any, b: any) => 
-                            (b.last_price * b.quantity) - (a.last_price * a.quantity)
-                          );
-                          const top5 = sorted.slice(0, 5);
-                          const others = sorted.slice(5);
-                          
-                          const data = top5.map((h: any) => ({
-                            name: h.tradingsymbol,
-                            value: h.last_price * h.quantity
-                          }));
-                          
-                          if (others.length > 0) {
-                            data.push({
-                              name: "Others",
-                              value: others.reduce((acc: any, h: any) => acc + (h.last_price * h.quantity), 0)
-                            });
-                          }
-                          return data;
-                        })()}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {[...Array(6)].map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={[
-                            "#60A5FA", "#34D399", "#F87171", "#FBBF24", "#A78BFA", "#9CA3AF"
-                          ][index % 6]} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip 
-                        formatter={(value: number) => `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
-                        contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }}
-                        itemStyle={{ color: '#F3F4F6' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex flex-wrap gap-2 justify-center mt-2">
-                   {(() => {
-                          const sorted = [...sidebarData].sort((a: any, b: any) => 
-                            (b.last_price * b.quantity) - (a.last_price * a.quantity)
-                          );
-                          const top5 = sorted.slice(0, 5);
-                          const others = sorted.slice(5);
-                          const items = top5.map((h: any) => h.tradingsymbol);
-                          if (others.length > 0) items.push("Others");
-                          
-                          return items.map((item, index) => (
-                            <div key={index} className="flex items-center gap-1 text-[10px] text-text-secondary">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: [
-                                "#60A5FA", "#34D399", "#F87171", "#FBBF24", "#A78BFA", "#9CA3AF"
-                              ][index % 6] }} />
-                              {item}
-                            </div>
-                          ));
-                   })()}
-                </div>
-              </div>
+                {/* Allocation Chart */}
+                <div className="bg-surface-hover/10 rounded-xl border border-border p-4">
+                  <h3 className="text-sm font-medium text-text-secondary mb-4">Asset Allocation</h3>
+                  <div className="h-[200px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={(() => {
+                            const sorted = [...sidebarData].sort((a: any, b: any) =>
+                              (b.last_price * b.quantity) - (a.last_price * a.quantity)
+                            );
+                            const top5 = sorted.slice(0, 5);
+                            const others = sorted.slice(5);
 
-              {/* Holdings Table */}
-              <div>
-                <h3 className="text-sm font-medium text-text-secondary mb-3">Holdings Details</h3>
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-text-secondary uppercase bg-surface-hover/50">
-                      <tr>
-                        <th className="px-3 py-2">Symbol</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2 text-right">LTP</th>
-                        <th className="px-3 py-2 text-right">P&L</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sidebarData.map((h: any, i: number) => (
-                        <tr
-                          key={i}
-                          className="border-b border-border hover:bg-surface-hover/30 last:border-0"
+                            const data = top5.map((h: any) => ({
+                              name: h.tradingsymbol,
+                              value: h.last_price * h.quantity
+                            }));
+
+                            if (others.length > 0) {
+                              data.push({
+                                name: "Others",
+                                value: others.reduce((acc: any, h: any) => acc + (h.last_price * h.quantity), 0)
+                              });
+                            }
+                            return data;
+                          })()}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
                         >
-                          <td className="px-3 py-2 font-medium">
-                            <div className="flex flex-col">
-                              <span>{h.tradingsymbol}</span>
-                              <span className="text-[10px] text-text-secondary">{h.exchange}</span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-right">{h.quantity}</td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="flex flex-col">
-                               <span>{h.last_price?.toFixed(2)}</span>
-                               <span className={`text-[10px] ${
-                                 (h.last_price - h.close_price) >= 0 ? "text-green-400" : "text-red-400"
-                               }`}>
-                                 {(h.last_price - h.close_price) >= 0 ? "+" : ""}
-                                 {((h.last_price - h.close_price) / h.close_price * 100).toFixed(2)}%
-                               </span>
-                            </div>
-                          </td>
-                          <td
-                            className={`px-3 py-2 text-right font-medium ${
-                              h.pnl >= 0 ? "text-green-400" : "text-red-400"
-                            }`}
-                          >
-                            {h.pnl?.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          {[...Array(6)].map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={[
+                              "#60A5FA", "#34D399", "#F87171", "#FBBF24", "#A78BFA", "#9CA3AF"
+                            ][index % 6]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          formatter={(value: number) => `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+                          contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }}
+                          itemStyle={{ color: '#F3F4F6' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center mt-2">
+                    {(() => {
+                      const sorted = [...sidebarData].sort((a: any, b: any) =>
+                        (b.last_price * b.quantity) - (a.last_price * a.quantity)
+                      );
+                      const top5 = sorted.slice(0, 5);
+                      const others = sorted.slice(5);
+                      const items = top5.map((h: any) => h.tradingsymbol);
+                      if (others.length > 0) items.push("Others");
+
+                      return items.map((item, index) => (
+                        <div key={index} className="flex items-center gap-1 text-[10px] text-text-secondary">
+                          <div className="w-2 h-2 rounded-full" style={{
+                            backgroundColor: [
+                              "#60A5FA", "#34D399", "#F87171", "#FBBF24", "#A78BFA", "#9CA3AF"
+                            ][index % 6]
+                          }} />
+                          {item}
+                        </div>
+                      ));
+                    })()}
+                  </div>
                 </div>
-              </div>
-            </>
-          ) : (
-             <div className="flex flex-col items-center justify-center h-64 text-text-secondary">
+
+                {/* Holdings Table */}
+                <div>
+                  <h3 className="text-sm font-medium text-text-secondary mb-3">Holdings Details</h3>
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-sm text-left">
+                      <thead className="text-xs text-text-secondary uppercase bg-surface-hover/50">
+                        <tr>
+                          <th className="px-3 py-2">Symbol</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2 text-right">LTP</th>
+                          <th className="px-3 py-2 text-right">P&L</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sidebarData.map((h: any, i: number) => (
+                          <tr
+                            key={i}
+                            className="border-b border-border hover:bg-surface-hover/30 last:border-0"
+                          >
+                            <td className="px-3 py-2 font-medium">
+                              <div className="flex flex-col">
+                                <span>{h.tradingsymbol}</span>
+                                <span className="text-[10px] text-text-secondary">{h.exchange}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right">{h.quantity}</td>
+                            <td className="px-3 py-2 text-right">
+                              <div className="flex flex-col">
+                                <span>{h.last_price?.toFixed(2)}</span>
+                                <span className={`text-[10px] ${(h.last_price - h.close_price) >= 0 ? "text-green-400" : "text-red-400"
+                                  }`}>
+                                  {(h.last_price - h.close_price) >= 0 ? "+" : ""}
+                                  {((h.last_price - h.close_price) / h.close_price * 100).toFixed(2)}%
+                                </span>
+                              </div>
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-medium ${h.pnl >= 0 ? "text-green-400" : "text-red-400"
+                                }`}
+                            >
+                              {h.pnl?.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-64 text-text-secondary">
                 <PieChartIcon className="w-12 h-12 mb-4 opacity-20" />
                 <p>No holdings found</p>
-             </div>
-          ))}
+              </div>
+            ))}
 
           {/* SINGLE STOCK VIEW */}
           {sidebarMode === 'single' && sidebarData && (
             <>
-               <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h1 className="text-2xl font-bold text-text-primary">{sidebarData.symbol}</h1>
-                    <p className="text-sm text-text-secondary">{sidebarData.name}</p>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h1 className="text-2xl font-bold text-text-primary">{sidebarData.symbol}</h1>
+                  <p className="text-sm text-text-secondary">{sidebarData.name}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-text-primary">
+                    ₹{sidebarData.current_price?.toLocaleString('en-IN')}
                   </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-text-primary">
-                        ₹{sidebarData.current_price?.toLocaleString('en-IN')}
+                  {sidebarData.current_price && sidebarData.previous_close && (
+                    <div className={`text-sm font-medium ${sidebarData.current_price >= sidebarData.previous_close ? "text-green-400" : "text-red-400"
+                      }`}>
+                      {sidebarData.current_price >= sidebarData.previous_close ? "+" : ""}
+                      {((sidebarData.current_price - sidebarData.previous_close) / sidebarData.previous_close * 100).toFixed(2)}%
                     </div>
-                    {sidebarData.current_price && sidebarData.previous_close && (
-                        <div className={`text-sm font-medium ${
-                            sidebarData.current_price >= sidebarData.previous_close ? "text-green-400" : "text-red-400"
-                        }`}>
-                            {sidebarData.current_price >= sidebarData.previous_close ? "+" : ""}
-                            {((sidebarData.current_price - sidebarData.previous_close) / sidebarData.previous_close * 100).toFixed(2)}%
-                        </div>
-                    )}
-                  </div>
-               </div>
+                  )}
+                </div>
+              </div>
 
-               <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                     <div className="text-xs text-text-secondary mb-1">Open</div>
-                     <div className="font-medium">₹{sidebarData.open?.toLocaleString('en-IN')}</div>
-                  </div>
-                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                     <div className="text-xs text-text-secondary mb-1">Prev. Close</div>
-                     <div className="font-medium">₹{sidebarData.previous_close?.toLocaleString('en-IN')}</div>
-                  </div>
-                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                     <div className="text-xs text-text-secondary mb-1">Day High</div>
-                     <div className="font-medium text-green-400">₹{sidebarData.day_high?.toLocaleString('en-IN')}</div>
-                  </div>
-                  <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
-                     <div className="text-xs text-text-secondary mb-1">Day Low</div>
-                     <div className="font-medium text-red-400">₹{sidebarData.day_low?.toLocaleString('en-IN')}</div>
-                  </div>
-               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                  <div className="text-xs text-text-secondary mb-1">Open</div>
+                  <div className="font-medium">₹{sidebarData.open?.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                  <div className="text-xs text-text-secondary mb-1">Prev. Close</div>
+                  <div className="font-medium">₹{sidebarData.previous_close?.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                  <div className="text-xs text-text-secondary mb-1">Day High</div>
+                  <div className="font-medium text-green-400">₹{sidebarData.day_high?.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-surface-hover/30 p-3 rounded-xl border border-border">
+                  <div className="text-xs text-text-secondary mb-1">Day Low</div>
+                  <div className="font-medium text-red-400">₹{sidebarData.day_low?.toLocaleString('en-IN')}</div>
+                </div>
+              </div>
 
-               {/* Performance Chart */}
-               <div className="bg-surface-hover/10 rounded-xl border border-border p-4">
-                  <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-sm font-medium text-text-secondary">Performance</h3>
-                      <div className="flex bg-surface rounded-lg p-1 gap-1">
-                          {['1d', '5d', '1mo', '6mo', '1y', '5y'].map((p) => (
-                              <button
-                                  key={p}
-                                  onClick={() => handlePeriodChange(p)}
-                                  className={`px-2 py-1 text-[10px] rounded-md transition-colors ${
-                                      chartPeriod === p 
-                                      ? 'bg-primary text-white' 
-                                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-                                  }`}
-                              >
-                                  {p.toUpperCase()}
-                              </button>
-                          ))}
-                      </div>
+              {/* Performance Chart */}
+              <div className="bg-surface-hover/10 rounded-xl border border-border p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-medium text-text-secondary">Performance</h3>
+                  <div className="flex bg-surface rounded-lg p-1 gap-1">
+                    {['1d', '5d', '1mo', '6mo', '1y', '5y'].map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => handlePeriodChange(p)}
+                        className={`px-2 py-1 text-[10px] rounded-md transition-colors ${chartPeriod === p
+                          ? 'bg-primary text-white'
+                          : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                          }`}
+                      >
+                        {p.toUpperCase()}
+                      </button>
+                    ))}
                   </div>
-                  
-                  <div className="h-[200px] w-full relative">
-                      {loadingChart && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-surface/50 z-10 backdrop-blur-sm">
-                              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                          </div>
-                      )}
-                      <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={chartData}>
-                              <defs>
-                                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="5%" stopColor="#34D399" stopOpacity={0.3}/>
-                                      <stop offset="95%" stopColor="#34D399" stopOpacity={0}/>
-                                  </linearGradient>
-                              </defs>
-                              <XAxis 
-                                  dataKey="time" 
-                                  hide 
-                              />
-                              <YAxis 
-                                  domain={['auto', 'auto']} 
-                                  hide 
-                              />
-                              <RechartsTooltip
-                                  contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }}
-                                  itemStyle={{ color: '#34D399' }}
-                                  labelFormatter={(label) => {
-                                      const date = new Date(label);
-                                      return chartPeriod === '1d' || chartPeriod === '5d'
-                                          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                          : date.toLocaleDateString();
-                                  }}
-                                  formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Price']}
-                              />
-                              <Area 
-                                  type="monotone" 
-                                  dataKey="value" 
-                                  stroke="#34D399" 
-                                  fillOpacity={1} 
-                                  fill="url(#colorValue)" 
-                              />
-                          </AreaChart>
-                      </ResponsiveContainer>
-                  </div>
-               </div>
+                </div>
 
-               <div className="space-y-3">
-                  <div className="flex justify-between py-2 border-b border-border">
-                     <span className="text-text-secondary text-sm">Market Cap</span>
-                     <span className="font-medium text-sm">
-                        {sidebarData.market_cap ? `₹${(sidebarData.market_cap / 10000000).toFixed(2)} Cr` : 'N/A'}
-                     </span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-border">
-                     <span className="text-text-secondary text-sm">P/E Ratio</span>
-                     <span className="font-medium text-sm">{sidebarData.pe_ratio?.toFixed(2) || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-border">
-                     <span className="text-text-secondary text-sm">Dividend Yield</span>
-                     <span className="font-medium text-sm">
-                        {sidebarData.dividend_yield ? `${(sidebarData.dividend_yield * 100).toFixed(2)}%` : 'N/A'}
-                     </span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-border">
-                     <span className="text-text-secondary text-sm">52W High</span>
-                     <span className="font-medium text-sm">₹{sidebarData['52_week_high']?.toLocaleString('en-IN')}</span>
-                  </div>
-                   <div className="flex justify-between py-2 border-b border-border">
-                     <span className="text-text-secondary text-sm">52W Low</span>
-                     <span className="font-medium text-sm">₹{sidebarData['52_week_low']?.toLocaleString('en-IN')}</span>
-                  </div>
-               </div>
+                <div className="h-[200px] w-full relative">
+                  {loadingChart && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-surface/50 z-10 backdrop-blur-sm">
+                      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#34D399" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#34D399" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="time"
+                        hide
+                      />
+                      <YAxis
+                        domain={['auto', 'auto']}
+                        hide
+                      />
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: '#1F2937', borderColor: '#374151', color: '#F3F4F6' }}
+                        itemStyle={{ color: '#34D399' }}
+                        labelFormatter={(label) => {
+                          const date = new Date(label);
+                          return chartPeriod === '1d' || chartPeriod === '5d'
+                            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            : date.toLocaleDateString();
+                        }}
+                        formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Price']}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#34D399"
+                        fillOpacity={1}
+                        fill="url(#colorValue)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-text-secondary text-sm">Market Cap</span>
+                  <span className="font-medium text-sm">
+                    {sidebarData.market_cap ? `₹${(sidebarData.market_cap / 10000000).toFixed(2)} Cr` : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-text-secondary text-sm">P/E Ratio</span>
+                  <span className="font-medium text-sm">{sidebarData.pe_ratio?.toFixed(2) || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-text-secondary text-sm">Dividend Yield</span>
+                  <span className="font-medium text-sm">
+                    {sidebarData.dividend_yield ? `${(sidebarData.dividend_yield * 100).toFixed(2)}%` : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-text-secondary text-sm">52W High</span>
+                  <span className="font-medium text-sm">₹{sidebarData['52_week_high']?.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-text-secondary text-sm">52W Low</span>
+                  <span className="font-medium text-sm">₹{sidebarData['52_week_low']?.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
             </>
           )}
 
           {/* LIST VIEW (SCREENER) */}
           {sidebarMode === 'list' && sidebarData && (
-             <>
-                <div className="mb-4">
-                   <h3 className="text-lg font-medium text-text-primary mb-1">Recommendations</h3>
-                   <p className="text-xs text-text-secondary">Based on technical analysis</p>
-                </div>
-                
-                <div className="space-y-2">
-                   {sidebarData.map((stock: any, i: number) => (
-                      <div key={i} className="bg-surface-hover/20 p-3 rounded-xl border border-border flex justify-between items-center hover:bg-surface-hover/40 transition-colors cursor-pointer">
-                         <div>
-                            <div className="font-bold text-text-primary">{stock.symbol}</div>
-                            <div className="text-xs text-text-secondary mt-1">{stock.signal}</div>
-                         </div>
-                         <div className="text-right">
-                            <div className="font-medium">₹{stock.price?.toLocaleString('en-IN')}</div>
-                         </div>
-                      </div>
-                   ))}
-                </div>
-             </>
+            <>
+              <div className="mb-4">
+                <h3 className="text-lg font-medium text-text-primary mb-1">Recommendations</h3>
+                <p className="text-xs text-text-secondary">Based on technical analysis</p>
+              </div>
+
+              <div className="space-y-2">
+                {sidebarData.map((stock: any, i: number) => (
+                  <div key={i} className="bg-surface-hover/20 p-3 rounded-xl border border-border flex justify-between items-center hover:bg-surface-hover/40 transition-colors cursor-pointer">
+                    <div>
+                      <div className="font-bold text-text-primary">{stock.symbol}</div>
+                      <div className="text-xs text-text-secondary mt-1">{stock.signal}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium">₹{stock.price?.toLocaleString('en-IN')}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
 
           {/* MOVERS VIEW */}
           {sidebarMode === 'movers' && sidebarData && (
-             <>
-                <div className="space-y-6">
-                   <div>
-                      <h3 className="text-sm font-medium text-green-400 mb-3 flex items-center gap-2">
-                         <TrendingUp className="w-4 h-4" /> Top Gainers
-                      </h3>
-                      <div className="space-y-2">
-                         {sidebarData.top_gainers?.map((stock: any, i: number) => (
-                            <div key={i} className="bg-surface-hover/20 p-3 rounded-xl border border-border flex justify-between items-center">
-                               <div>
-                                  <div className="font-bold text-text-primary">{stock.symbol}</div>
-                                  <div className="text-xs text-text-secondary">₹{stock.price?.toLocaleString('en-IN')}</div>
-                               </div>
-                               <div className="text-green-400 font-bold text-sm">
-                                  +{stock.change_pct}%
-                               </div>
-                            </div>
-                         ))}
+            <>
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-medium text-green-400 mb-3 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4" /> Top Gainers
+                  </h3>
+                  <div className="space-y-2">
+                    {sidebarData.top_gainers?.map((stock: any, i: number) => (
+                      <div key={i} className="bg-surface-hover/20 p-3 rounded-xl border border-border flex justify-between items-center">
+                        <div>
+                          <div className="font-bold text-text-primary">{stock.symbol}</div>
+                          <div className="text-xs text-text-secondary">₹{stock.price?.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div className="text-green-400 font-bold text-sm">
+                          +{stock.change_pct}%
+                        </div>
                       </div>
-                   </div>
-
-                   <div>
-                      <h3 className="text-sm font-medium text-red-400 mb-3 flex items-center gap-2">
-                         <TrendingDown className="w-4 h-4" /> Top Losers
-                      </h3>
-                      <div className="space-y-2">
-                         {sidebarData.top_losers?.map((stock: any, i: number) => (
-                            <div key={i} className="bg-surface-hover/20 p-3 rounded-xl border border-border flex justify-between items-center">
-                               <div>
-                                  <div className="font-bold text-text-primary">{stock.symbol}</div>
-                                  <div className="text-xs text-text-secondary">₹{stock.price?.toLocaleString('en-IN')}</div>
-                               </div>
-                               <div className="text-red-400 font-bold text-sm">
-                                  {stock.change_pct}%
-                               </div>
-                            </div>
-                         ))}
-                      </div>
-                   </div>
+                    ))}
+                  </div>
                 </div>
-             </>
+
+                <div>
+                  <h3 className="text-sm font-medium text-red-400 mb-3 flex items-center gap-2">
+                    <TrendingDown className="w-4 h-4" /> Top Losers
+                  </h3>
+                  <div className="space-y-2">
+                    {sidebarData.top_losers?.map((stock: any, i: number) => (
+                      <div key={i} className="bg-surface-hover/20 p-3 rounded-xl border border-border flex justify-between items-center">
+                        <div>
+                          <div className="font-bold text-text-primary">{stock.symbol}</div>
+                          <div className="text-xs text-text-secondary">₹{stock.price?.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div className="text-red-400 font-bold text-sm">
+                          {stock.change_pct}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
 
         </div>

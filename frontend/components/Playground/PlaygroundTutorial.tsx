@@ -20,6 +20,7 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
         </div>
       ),
       disableBeacon: true,
+      placement: 'center',
     },
     {
       target: '#tutorial-stock-selector',
@@ -29,6 +30,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
           <p>Enter the symbol of the stock you want to test (e.g., RELIANCE, TCS, INFY).</p>
         </div>
       ),
+      placement: 'auto',
+      spotlightPadding: 8,
     },
     {
       target: '#tutorial-strategy-selector',
@@ -42,6 +45,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
           </ul>
         </div>
       ),
+      placement: 'auto',
+      spotlightPadding: 8,
     },
     {
       target: '#tutorial-strategy-params',
@@ -52,6 +57,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
           <p className="mt-2 text-sm">For example, changing the "Short Window" makes the strategy faster or slower to react.</p>
         </div>
       ),
+      placement: 'auto',
+      spotlightPadding: 8,
     },
     {
       target: '#tutorial-run-button',
@@ -62,6 +69,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
           <p className="mt-2 text-sm">It will calculate how much money you would have made (or lost!).</p>
         </div>
       ),
+      placement: 'auto',
+      spotlightPadding: 8,
     },
     {
       target: '#tutorial-backtest-chart',
@@ -72,6 +81,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
           <p className="mt-2 text-sm">Look for a line that goes up! The green/red markers show where the algorithm bought and sold.</p>
         </div>
       ),
+      placement: 'auto',
+      spotlightPadding: 8,
     },
     {
       target: '#tutorial-playground-chat',
@@ -82,6 +93,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
           <p className="mt-2 text-sm">Try asking: "Why did this strategy lose money?"</p>
         </div>
       ),
+      placement: 'auto',
+      spotlightPadding: 8,
     },
   ]);
 
@@ -116,6 +129,8 @@ const PlaygroundTutorial: React.FC<PlaygroundTutorialProps> = ({ run, setRun, se
       showProgress
       showSkipButton
       callback={handleJoyrideCallback}
+      scrollOffset={150}
+      disableScrolling={true}
       styles={{
         options: {
           primaryColor: '#3b82f6', // Match your theme blue

@@ -28,10 +28,9 @@ const PlaygroundSidebar: React.FC<PlaygroundSidebarProps> = ({
   loading
 }) => {
   return (
-    <div 
-      className={`max-h-[85%] rounded-xl ml-5 mt-5 relative bg-surface border-r border-border transition-all duration-300 ease-in-out flex flex-col ${
-        isOpen ? 'w-80' : 'w-0'
-      }`}
+    <div
+      className={`h-full rounded-xl relative bg-surface border border-border transition-all duration-300 ease-in-out flex flex-col ${isOpen ? 'w-80' : 'w-0'
+        }`}
     >
       {/* Toggle Button */}
       <button
@@ -43,8 +42,8 @@ const PlaygroundSidebar: React.FC<PlaygroundSidebarProps> = ({
 
       {/* Content Container */}
       <div className={`flex-1 overflow-y-auto p-4 space-y-6 ${isOpen ? 'opacity-100' : 'opacity-0 hidden'}`}>
-        
-        <StrategyControls 
+
+        <StrategyControls
           symbol={symbol}
           setSymbol={setSymbol}
           strategy={strategy}
@@ -54,7 +53,7 @@ const PlaygroundSidebar: React.FC<PlaygroundSidebarProps> = ({
           onRunBacktest={onRunBacktest}
           loading={loading}
         />
-        
+
         {/* Strategy Guide */}
         <div className="bg-surface p-4 rounded-lg border border-border">
           <h3 className="text-lg font-bold text-text-primary mb-3">Beginner's Guide</h3>
